@@ -1,0 +1,7 @@
+requests
+rich
+flask
+akshare
+streamlit
+pandas
+yfinance

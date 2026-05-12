@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOF/QDII 基金溢价监控</title>
+    <style>
+        :root {
+            --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+            --text: #e1e4ed; --text-dim: #6b7280;
+            --red: #ef4444; --red-bg: rgba(239,68,68,0.15);
+            --yellow: #eab308; --yellow-bg: rgba(234,179,8,0.15);
+            --green: #22c55e; --green-bg: rgba(34,197,94,0.15);
+            --blue: #3b82f6; --purple: #a78bfa;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","Helvetica Neue",sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding:24px; }
+        .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:16px; }
+        h1 { font-size:24px; font-weight:600; } h1 span { color:var(--blue); }
+        .controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        input[type="text"], input[type="number"] { background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:8px 12px; font-size:14px; outline:none; transition:border-color 0.2s; }
+        input:focus { border-color:var(--blue); }
+        input[type="text"] { width:200px; }
+        input[type="number"] { width:70px; text-align:center; }
+        button { background:var(--blue); color:white; border:none; border-radius:8px; padding:8px 16px; font-size:14px; cursor:pointer; transition:opacity 0.2s; }
+        button:hover { opacity:0.85; }
+        button.secondary { background:var(--surface); border:1px solid var(--border); color:var(--text-dim); }
+        button.active { background:var(--purple); border-color:var(--purple); color:white; }
+        button.danger { background:transparent; border:1px solid var(--red); color:var(--red); padding:4px 10px; font-size:12px; }
+        button.danger:hover { background:var(--red-bg); }
+        .sources { margin-top:20px; padding:16px; background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+        .sources h3 { font-size:14px; color:var(--text-dim); margin-bottom:12px; font-weight:500; cursor:pointer; user-select:none; }
+        .sources h3::before { content:'▸ '; } .sources.open h3::before { content:'▾ '; }
+        .sources-body { display:none; font-size:13px; color:var(--text-dim); line-height:1.8; }
+        .sources.open .sources-body { display:block; }
+        .sources-body .src-label { color:var(--purple); font-weight:500; }
+        .sources-body .src-detail { color:var(--text-dim); font-size:12px; }
+        .status-bar { display:flex; align-items:center; gap:16px; margin-bottom:16px; font-size:13px; color:var(--text-dim); }
+        .status-dot { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; animation:pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        .table-container { background:var(--surface); border-radius:12px; border:1px solid var(--border); overflow-x:auto; }
+        table { width:100%; border-collapse:collapse; font-size:14px; }
+        thead th { background:rgba(59,130,246,0.08); padding:14px 16px; text-align:right; font-weight:500; color:var(--text-dim); font-size:13px; white-space:nowrap; border-bottom:1px solid var(--border); }
+        thead th:first-child { text-align:center; } thead th:nth-child(2) { text-align:left; }
+        tbody td { padding:14px 16px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+        tbody td:first-child { text-align:center; font-weight:600; color:var(--blue); }
+        tbody td:nth-child(2) { text-align:left; color:var(--text); }
+        tbody tr:hover { background:rgba(255,255,255,0.03); }
+        tbody tr:last-child td { border-bottom:none; }
+        .premium-high { color:var(--red); font-weight:600; }
+        .premium-mid { color:var(--yellow); font-weight:500; }
+        .premium-low { color:var(--text); }
+        .premium-discount { color:var(--green); font-weight:500; }
+        .premium-cell { position:relative; }
+        .premium-cell.alert { background:var(--red-bg); border-radius:6px; animation:alert-flash 1.5s infinite; }
+        @keyframes alert-flash { 0%,100%{background:var(--red-bg)} 50%{background:rgba(239,68,68,0.25)} }
+        .iopv-cell { color:var(--purple); font-weight:500; }
+        .change-up { color:var(--red); } .change-down { color:var(--green); }
+        .sg-open { color:var(--green); font-weight:500; }
+        .sg-limit { color:var(--yellow); font-weight:500; }
+        .sg-pause { color:var(--red); font-weight:500; }
+        .nav-warning { display:inline-block; font-size:11px; color:var(--yellow); margin-left:4px; cursor:help; }
+        .error-row td { color:var(--text-dim); font-style:italic; }
+        .legend { display:flex; gap:20px; margin-top:16px; font-size:12px; color:var(--text-dim); flex-wrap:wrap; }
+        .legend-item { display:flex; align-items:center; gap:6px; }
+        .legend-dot { width:10px; height:10px; border-radius:3px; }
+        .formula-bar { margin-top:12px; padding:10px 16px; background:var(--surface); border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--text-dim); display:none; }
+        .formula-bar.visible { display:block; }
+        .watchlist { margin-top:20px; padding:16px; background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+        .watchlist h3 { font-size:14px; color:var(--text-dim); margin-bottom:12px; font-weight:500; }
+        .watchlist-items { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+        .watchlist-chip { display:flex; align-items:center; gap:6px; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 12px; font-size:13px; }
+        .watchlist-chip .code { color:var(--blue); font-weight:600; }
+        .watchlist-chip .name { color:var(--text-dim); font-size:12px; }
+        .add-row { display:flex; gap:8px; align-items:center; }
+        .add-row input[type="text"] { width:140px; }
+        @media (max-width:640px) { body{padding:12px} .header{flex-direction:column;align-items:flex-start} input[type="text"]{width:100%} table{font-size:13px} thead th,tbody td{padding:10px 8px} }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><span>LOF/QDII</span> 基金溢价监控</h1>
+        <div class="controls">
+            <button class="secondary" id="iopvBtn" onclick="toggleIOPV()">IOPV 估算</button>
+            <span style="font-size:13px;color:var(--text-dim)">告警</span>
+            <input type="number" id="alertInput" value="{{ default_alert }}" step="0.5">
+            <span style="font-size:13px;color:var(--text-dim)">%</span>
+            <button class="secondary" onclick="toggleAutoRefresh()">
+                <span id="autoLabel">自动刷新: 关</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">就绪</span>
+        <span id="refreshInfo"></span>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead><tr id="tableHeader"></tr></thead>
+            <tbody id="fundTable">
+                <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-dim)">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="formula-bar" id="formulaBar">
+        IOPV = T-1净值 × (外盘现价 / 外盘昨收) × (实时汇率 / T-1汇率中间价) &nbsp;|&nbsp; IOPV溢价 = (场内价 / IOPV - 1) × 100%
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>高溢价 ≥5%</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div>中等 2-5%</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--text)"></div>低溢价 &lt;2%</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>折价 &lt;0%</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div>IOPV估算</div>
+    </div>
+
+    <div class="watchlist">
+        <h3>监控列表 <span style="font-size:12px;color:var(--text-dim)">(自动保存)</span></h3>
+        <div class="watchlist-items" id="watchlistItems"></div>
+        <div class="add-row">
+            <input type="text" id="addCodeInput" placeholder="输入基金代码" onkeydown="if(event.key==='Enter')addFund()">
+            <button onclick="addFund()">+ 添加</button>
+        </div>
+    </div>
+
+    <div class="sources" id="sourcesPanel">
+        <h3 onclick="document.getElementById('sourcesPanel').classList.toggle('open')">数据来源说明</h3>
+        <div class="sources-body">
+            <p><span class="src-label">T-1 官方净值 (NAV)</span><br>
+                <span class="src-detail">腾讯财经 qt.gtimg.cn → 字段81。QDII 基金因跨时区结算，净值可能延迟 1-3 个交易日。</span></p>
+            <p><span class="src-label">场内实时价格</span><br>
+                <span class="src-detail">腾讯财经 qt.gtimg.cn → 字段3。沪深交易所盘中实时行情。</span></p>
+            <p><span class="src-label">官方溢价率</span><br>
+                <span class="src-detail">(场内价格 - T-1净值) / T-1净值 × 100%。基于滞后净值，对 QDII 基金可能严重失真。</span></p>
+            <p><span class="src-label">IOPV 实时估算净值</span><br>
+                <span class="src-detail">IOPV = T-1净值 × (外盘现价 / 外盘昨收) × (实时汇率 / T-1中间价)</span></p>
+            <p style="margin-left:16px">
+                <span class="src-label">外盘期货</span> <span class="src-detail">腾讯外盘 qt.gtimg.cn/hf_* — 黄金(hf_GC)、原油(hf_CL/hf_OIL)、标普500(hf_ES)</span><br>
+                <span class="src-label">实时汇率</span> <span class="src-detail">ExchangeRate API open.er-api.com → USD/CNH</span><br>
+                <span class="src-label">T-1 汇率中间价</span> <span class="src-detail">AkShare → 中国银行央行中间价</span>
+            </p>
+            <p><span class="src-label">IOPV 溢价率</span><br>
+                <span class="src-detail">(场内价格 / IOPV - 1) × 100%。修正了外盘波动和汇率变动，比官方溢价更能反映实时折溢价水平。</span></p>
+        </div>
+    </div>
+
+    <script>
+        let autoTimer = null;
+        let autoInterval = {{ default_refresh }};
+        let iopvEnabled = {{ default_estimate }};
+        let fundCodes = [];
+
+        function premiumClass(rate) {
+            if (rate === null || rate === undefined) return '';
+            if (rate >= 5) return 'premium-high';
+            if (rate >= 2) return 'premium-mid';
+            if (rate < 0) return 'premium-discount';
+            return 'premium-low';
+        }
+        function formatPremium(rate) {
+            if (rate === null || rate === undefined) return '-';
+            return (rate > 0 ? '+' : '') + rate.toFixed(2) + '%';
+        }
+        function formatChange(pct) {
+            if (pct === null || pct === undefined) return '-';
+            return (pct > 0 ? '+' : '') + pct.toFixed(2) + '%';
+        }
+        function formatVolume(v) { return v ? v.toLocaleString() : '-'; }
+        function navAgeText(days) { return (days && days > 1) ? ` (${days}天前)` : ''; }
+
+        function toggleIOPV() {
+            iopvEnabled = !iopvEnabled;
+            const btn = document.getElementById('iopvBtn');
+            const formula = document.getElementById('formulaBar');
+            btn.className = iopvEnabled ? 'active' : 'secondary';
+            formula.className = iopvEnabled ? 'formula-bar visible' : 'formula-bar';
+            refresh();
+        }
+
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                const config = await resp.json();
+                fundCodes = config.codes || [];
+                iopvEnabled = config.estimate !== false;
+                autoInterval = config.refresh_seconds || 30;
+                document.getElementById('alertInput').value = config.alert_premium || 5;
+                const btn = document.getElementById('iopvBtn');
+                const formula = document.getElementById('formulaBar');
+                btn.className = iopvEnabled ? 'active' : 'secondary';
+                formula.className = iopvEnabled ? 'formula-bar visible' : 'formula-bar';
+                renderWatchlist();
+            } catch (e) {
+                fundCodes = ['164701','161116','161129'];
+            }
+        }
+
+        function renderWatchlist() {
+            const container = document.getElementById('watchlistItems');
+            container.innerHTML = fundCodes.map(code =>
+                `<div class="watchlist-chip">
+                    <span class="code">${code}</span>
+                    <button class="danger" onclick="removeFund('${code}')">x</button>
+                </div>`
+            ).join('');
+        }
+
+        async function addFund() {
+            const input = document.getElementById('addCodeInput');
+            const code = input.value.trim();
+            if (!code) return;
+            if (fundCodes.includes(code)) { input.value = ''; return; }
+
+            try {
+                await fetch('/api/funds/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code})
+                });
+                fundCodes.push(code);
+                renderWatchlist();
+                input.value = '';
+                refresh();
+            } catch (e) { console.error(e); }
+        }
+
+        async function removeFund(code) {
+            try {
+                await fetch('/api/funds/remove', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code})
+                });
+                fundCodes = fundCodes.filter(c => c !== code);
+                renderWatchlist();
+                refresh();
+            } catch (e) { console.error(e); }
+        }
+
+        async function refresh() {
+            if (!fundCodes.length) return;
+
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            statusDot.style.background = 'var(--yellow)';
+            statusText.textContent = '刷新中...';
+
+            try {
+                const codes = fundCodes.join(',');
+                const resp = await fetch(`/api/funds?codes=${encodeURIComponent(codes)}&estimate=${iopvEnabled}`);
+                const data = await resp.json();
+                renderTable(data);
+                statusDot.style.background = 'var(--green)';
+                statusText.textContent = `已更新 ${new Date().toLocaleTimeString()}`;
+            } catch (e) {
+                statusDot.style.background = 'var(--red)';
+                statusText.textContent = '请求失败: ' + e.message;
+            }
+        }
+
+        function renderTable(funds) {
+            const tbody = document.getElementById('fundTable');
+            const header = document.getElementById('tableHeader');
+            const alertThreshold = parseFloat(document.getElementById('alertInput').value) || 5;
+
+            if (iopvEnabled) {
+                header.innerHTML = `<th>代码</th><th>名称</th><th>场内价格</th><th>净值</th>
+                    <th>官方溢价</th><th>IOPV</th><th>IOPV溢价</th>
+                    <th>涨跌幅</th><th>成交量</th><th>净值日期</th><th>申购</th><th>赎回</th>`;
+            } else {
+                header.innerHTML = `<th>代码</th><th>名称</th><th>场内价格</th><th>净值</th>
+                    <th>溢价率</th><th>涨跌幅</th><th>成交量</th><th>净值日期</th><th>申购</th><th>赎回</th>`;
+            }
+
+            const colCount = iopvEnabled ? 12 : 10;
+
+            if (!funds.length) {
+                tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;padding:40px;color:var(--text-dim)">无数据</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = funds.map(f => {
+                if (f.error) return `<tr class="error-row"><td>${f.code}</td><td>${f.name||'-'}</td><td colspan="${colCount-2}">${f.error}</td></tr>`;
+
+                const oc = premiumClass(f.premium_rate);
+                const oa = (f.premium_rate!==null && f.premium_rate>=alertThreshold) ? 'alert' : '';
+                const ic = premiumClass(f.iopv_premium);
+                const ia = (f.iopv_premium!==null && f.iopv_premium>=alertThreshold) ? 'alert' : '';
+                const cc = f.change_pct > 0 ? 'change-up' : (f.change_pct < 0 ? 'change-down' : '');
+                const aw = f.nav_age_days > 2 ? '<span class="nav-warning" title="净值可能延迟">⚠</span>' : '';
+
+                const price = f.market_price ? f.market_price.toFixed(3) : '-';
+                const nav = f.nav ? f.nav.toFixed(4) : '-';
+                const vol = formatVolume(f.volume);
+                const date = (f.nav_date || '-') + navAgeText(f.nav_age_days);
+
+                // 申购状态
+                let sgHtml = '<span style="color:var(--text-dim)">-</span>';
+                if (f.sgzt) {
+                    if (f.sgzt.includes('开放')) sgHtml = '<span class="sg-open">开放</span>';
+                    else if (f.sgzt.includes('暂停')) sgHtml = '<span class="sg-pause">暂停</span>';
+                    else if (f.sgzt.includes('限大额')) {
+                        const limit = f.sg_limit || '';
+                        sgHtml = `<span class="sg-limit" title="${f.sgzt}">限${limit}</span>`;
+                    }
+                }
+                // 赎回状态
+                let shHtml = '<span style="color:var(--text-dim)">-</span>';
+                if (f.shzt) {
+                    if (f.shzt.includes('开放')) shHtml = '<span class="sg-open">开放</span>';
+                    else if (f.shzt.includes('暂停')) shHtml = '<span class="sg-pause">暂停</span>';
+                }
+
+                if (iopvEnabled) {
+                    const iopv = f.estimated_iopv ? f.estimated_iopv.toFixed(4) : '-';
+                    return `<tr><td>${f.code}</td><td>${f.name}</td><td>${price}</td><td>${nav}${aw}</td>
+                        <td class="premium-cell ${oa}"><span class="${oc}">${formatPremium(f.premium_rate)}</span></td>
+                        <td class="iopv-cell">${iopv}</td>
+                        <td class="premium-cell ${ia}"><span class="${ic}">${formatPremium(f.iopv_premium)}</span></td>
+                        <td class="${cc}">${formatChange(f.change_pct)}</td><td>${vol}</td><td>${date}</td>
+                        <td>${sgHtml}</td><td>${shHtml}</td></tr>`;
+                } else {
+                    return `<tr><td>${f.code}</td><td>${f.name}</td><td>${price}</td><td>${nav}${aw}</td>
+                        <td class="premium-cell ${oa}"><span class="${oc}">${formatPremium(f.premium_rate)}</span></td>
+                        <td class="${cc}">${formatChange(f.change_pct)}</td><td>${vol}</td><td>${date}</td>
+                        <td>${sgHtml}</td><td>${shHtml}</td></tr>`;
+                }
+            }).join('');
+        }
+
+        function toggleAutoRefresh() {
+            const label = document.getElementById('autoLabel');
+            const info = document.getElementById('refreshInfo');
+            if (autoTimer) {
+                clearInterval(autoTimer); autoTimer = null;
+                label.textContent = '自动刷新: 关'; info.textContent = '';
+            } else {
+                autoTimer = setInterval(refresh, autoInterval * 1000);
+                label.textContent = `自动刷新: ${autoInterval}s`;
+                info.textContent = `每 ${autoInterval} 秒刷新`;
+                refresh();
+            }
+        }
+
+        // 初始化
+        (async function() {
+            await loadConfig();
+            refresh();
+        })();
+    </script>
+</body>
+</html>

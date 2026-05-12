@@ -181,4 +181,4 @@ export WECHAT_WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=
 
 ## 📄 License
 
-[MIT](LICENSE) © 2026 史纯涛
+[MIT](LICENSE) © 2026 ting2tao

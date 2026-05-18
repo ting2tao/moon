@@ -17,6 +17,20 @@ class OpportunityConfig:
     gross_threshold: float = 1.5
     net_threshold: float = 0.5
 
+    @classmethod
+    def from_mapping(cls, values: dict | None) -> "OpportunityConfig":
+        values = values or {}
+        return cls(
+            subscription_fee_rate=float(values.get("subscription_fee_rate", cls.subscription_fee_rate)),
+            redemption_fee_rate=float(values.get("redemption_fee_rate", cls.redemption_fee_rate)),
+            buy_commission_rate=float(values.get("buy_commission_rate", cls.buy_commission_rate)),
+            sell_commission_rate=float(values.get("sell_commission_rate", cls.sell_commission_rate)),
+            slippage_buffer=float(values.get("slippage_buffer", cls.slippage_buffer)),
+            min_turnover_wan=float(values.get("min_turnover_wan", cls.min_turnover_wan)),
+            gross_threshold=float(values.get("gross_threshold", values.get("alert_premium", cls.gross_threshold))),
+            net_threshold=float(values.get("net_alert_premium", values.get("net_threshold", cls.net_threshold))),
+        )
+
 
 @dataclass(frozen=True)
 class ReferenceValue:

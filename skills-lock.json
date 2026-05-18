@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "darwin-skill": {
+      "source": "alchaincyf/darwin-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "645d7272998a01fe95c0deb826fbb311e915d15fa24442fe43702c2162a7f05c"
+    }
+  }
+}

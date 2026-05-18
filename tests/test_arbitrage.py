@@ -2,6 +2,22 @@ import unittest
 
 
 class ArbitrageMathTests(unittest.TestCase):
+    def test_builds_opportunity_config_from_mapping(self):
+        from arbitrage import OpportunityConfig
+
+        cfg = OpportunityConfig.from_mapping(
+            {
+                "gross_threshold": 2.0,
+                "net_alert_premium": 0.8,
+                "min_turnover_wan": 300,
+            }
+        )
+
+        self.assertEqual(cfg.gross_threshold, 2.0)
+        self.assertEqual(cfg.net_threshold, 0.8)
+        self.assertEqual(cfg.min_turnover_wan, 300)
+        self.assertEqual(cfg.subscription_fee_rate, OpportunityConfig.subscription_fee_rate)
+
     def test_calculates_official_premium_from_price_and_nav(self):
         from arbitrage import calculate_official_premium
 

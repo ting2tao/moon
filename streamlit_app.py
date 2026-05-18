@@ -7,17 +7,38 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from arbitrage import OpportunityConfig
 from cli import alert_rows, load_config
 from monitor import FundData, enrich_with_iopv, fetch_fund_data
 from notifier import AlertCooldown, WeChatNotifier, format_alert_markdown
 
 
 @st.cache_data(ttl=15, show_spinner=False)
-def load_dashboard_funds(codes: tuple[str, ...], estimate: bool) -> list[FundData]:
-    funds = fetch_fund_data(list(codes))
+def load_dashboard_funds(
+    codes: tuple[str, ...],
+    estimate: bool,
+    min_turnover_wan: float,
+    gross_threshold: float,
+    net_threshold: float,
+) -> list[FundData]:
+    opportunity_config = OpportunityConfig.from_mapping(
+        {
+            "min_turnover_wan": min_turnover_wan,
+            "gross_threshold": gross_threshold,
+            "net_alert_premium": net_threshold,
+        }
+    )
+    funds = fetch_fund_data(list(codes), opportunity_config)
     if estimate:
-        funds = enrich_with_iopv(funds)
+        funds = enrich_with_iopv(funds, opportunity_config)
     return funds
+
+
+def get_alert_cooldown(session_state=None) -> AlertCooldown:
+    session_state = st.session_state if session_state is None else session_state
+    if "alert_cooldown" not in session_state:
+        session_state["alert_cooldown"] = AlertCooldown()
+    return session_state["alert_cooldown"]
 
 
 def fund_to_row(fund: FundData) -> dict:
@@ -87,7 +108,7 @@ def main() -> None:
         st.warning("请输入至少一个基金代码。")
         return
 
-    funds = load_dashboard_funds(tuple(codes), estimate)
+    funds = load_dashboard_funds(tuple(codes), estimate, min_turnover, gross_threshold, net_threshold)
 
     rows = [fund_to_row(f) for f in funds if f.product_type in selected_types]
     df = pd.DataFrame(rows)
@@ -147,15 +168,32 @@ def main() -> None:
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
     if notify:
-        rows_to_send = alert_rows(funds, config)
+        alert_config = {
+            **config,
+            "alert_premium": gross_threshold,
+            "gross_threshold": gross_threshold,
+            "net_alert_premium": net_threshold,
+            "min_turnover_wan": min_turnover,
+        }
+        cooldown = get_alert_cooldown()
+        rows_to_send = []
+        row_keys = []
+        for row in alert_rows(funds, alert_config):
+            code = str(row.get("code", ""))
+            alert_type = f"{row.get('status', 'unknown')}:{row.get('opportunity_direction', 'none')}"
+            if cooldown.should_send(code, alert_type):
+                rows_to_send.append(row)
+                row_keys.append((code, alert_type))
         if rows_to_send:
-            ok, message = WeChatNotifier(cooldown=AlertCooldown()).send_markdown(format_alert_markdown(rows_to_send))
+            ok, message = WeChatNotifier(cooldown=cooldown).send_markdown(format_alert_markdown(rows_to_send))
             if ok:
+                for code, alert_type in row_keys:
+                    cooldown.mark_sent(code, alert_type)
                 st.success("企业微信通知已发送。")
             else:
                 st.warning(f"企业微信通知未发送: {message}")
         else:
-            st.caption("当前无企业微信触发项。")
+            st.caption("当前无新增企业微信触发项。")
 
     st.caption("本页不会自动下单；净空间只用于筛选，实盘前需核对申赎状态、限额、费用和到账时间。")
 

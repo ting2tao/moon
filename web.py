@@ -11,11 +11,13 @@ import os
 
 from flask import Flask, jsonify, redirect, render_template, request
 
+from arbitrage import OpportunityConfig
 from cli import alert_rows
 from monitor import FundData, enrich_with_iopv, fetch_fund_data
 from notifier import AlertCooldown, WeChatNotifier, format_alert_markdown
 
 app = Flask(__name__)
+ALERT_COOLDOWN = AlertCooldown()
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "funds.json")
 
@@ -113,9 +115,10 @@ def api_funds():
     if not codes:
         return jsonify({"error": "未提供基金代码"}), 400
 
-    funds = fetch_fund_data(codes)
+    opportunity_config = OpportunityConfig.from_mapping(load_config())
+    funds = fetch_fund_data(codes, opportunity_config)
     if estimate:
-        funds = enrich_with_iopv(funds)
+        funds = enrich_with_iopv(funds, opportunity_config)
 
     result = [fund_to_dict(fund) for fund in funds]
     result.sort(
@@ -136,9 +139,10 @@ def api_alerts():
         return jsonify({"error": "未提供基金代码"}), 400
 
     config = load_config()
-    funds = fetch_fund_data(codes)
+    opportunity_config = OpportunityConfig.from_mapping(config)
+    funds = fetch_fund_data(codes, opportunity_config)
     if estimate:
-        funds = enrich_with_iopv(funds)
+        funds = enrich_with_iopv(funds, opportunity_config)
     rows = alert_rows(funds, config)
     return jsonify({"count": len(rows), "rows": rows, "markdown": format_alert_markdown(rows) if rows else ""})
 
@@ -150,15 +154,30 @@ def api_notify():
     estimate = bool(data.get("estimate", True))
     config = load_config()
 
-    funds = fetch_fund_data(codes)
+    opportunity_config = OpportunityConfig.from_mapping(config)
+    funds = fetch_fund_data(codes, opportunity_config)
     if estimate:
-        funds = enrich_with_iopv(funds)
+        funds = enrich_with_iopv(funds, opportunity_config)
 
-    rows = alert_rows(funds, config)
-    if not rows:
+    raw_rows = alert_rows(funds, config)
+    if not raw_rows:
         return jsonify({"ok": True, "sent": False, "message": "无触发机会"})
 
-    ok, message = WeChatNotifier(cooldown=AlertCooldown()).send_markdown(format_alert_markdown(rows))
+    rows = []
+    row_keys = []
+    for row in raw_rows:
+        code = str(row.get("code", ""))
+        alert_type = f"{row.get('status', 'unknown')}:{row.get('opportunity_direction', 'none')}"
+        if ALERT_COOLDOWN.should_send(code, alert_type):
+            rows.append(row)
+            row_keys.append((code, alert_type))
+    if not rows:
+        return jsonify({"ok": True, "sent": False, "message": "冷却中，无新增触发机会"})
+
+    ok, message = WeChatNotifier(cooldown=ALERT_COOLDOWN).send_markdown(format_alert_markdown(rows))
+    if ok:
+        for code, alert_type in row_keys:
+            ALERT_COOLDOWN.mark_sent(code, alert_type)
     return jsonify({"ok": ok, "sent": ok, "message": message, "count": len(rows)})
 
 

@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from arbitrage import OpportunityConfig
 from monitor import FundData, enrich_with_iopv, fetch_fund_data
 from notifier import AlertCooldown, WeChatNotifier, format_alert_markdown
 
@@ -254,9 +255,10 @@ def run_once(
     notify: bool = False,
 ) -> list[FundData]:
     config = load_config()
-    funds = fetch_fund_data(codes)
+    opportunity_config = OpportunityConfig.from_mapping(config)
+    funds = fetch_fund_data(codes, opportunity_config)
     if estimate:
-        funds = enrich_with_iopv(funds)
+        funds = enrich_with_iopv(funds, opportunity_config)
 
     console.print(build_table(funds, alert_threshold=alert_threshold))
 

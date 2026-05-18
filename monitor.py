@@ -111,6 +111,18 @@ def _parse_tencent_line(line: str) -> Optional[FundData]:
     premium_rate = safe_float(77)
     change_pct = safe_float(32) if len(parts) > 32 else None
     volume = safe_int(6)
+    turnover_amount = None
+    if len(parts) > 35 and "/" in parts[35]:
+        trade_parts = parts[35].split("/")
+        if len(trade_parts) >= 3:
+            try:
+                turnover_amount = float(trade_parts[2])
+            except ValueError:
+                turnover_amount = None
+    if turnover_amount is None:
+        amount_wan = safe_float(57) or safe_float(37)
+        if amount_wan is not None:
+            turnover_amount = amount_wan * 10_000
 
     # NAV 日期：从字段85附近提取，格式 YYYYMMDD
     nav_date = None
@@ -129,6 +141,7 @@ def _parse_tencent_line(line: str) -> Optional[FundData]:
         raw_premium_rate=premium_rate,
         change_pct=change_pct,
         volume=volume,
+        turnover_amount=turnover_amount,
         nav_age_days=_calc_nav_age(nav_date),
     )
 
@@ -167,7 +180,10 @@ def _fetch_subscription_status(codes: list[str]) -> dict[str, tuple[Optional[str
     return result
 
 
-def fetch_fund_data(codes: list[str]) -> list[FundData]:
+def fetch_fund_data(
+    codes: list[str],
+    opportunity_config: OpportunityConfig | None = None,
+) -> list[FundData]:
     """批量获取基金实时数据（腾讯财经 API）"""
     import requests
 
@@ -219,7 +235,7 @@ def fetch_fund_data(codes: list[str]) -> list[FundData]:
         if f.code in sub_status:
             f.sgzt, f.shzt, f.sg_limit = sub_status[f.code]
 
-    return apply_opportunity_metrics(results)
+    return apply_opportunity_metrics(results, opportunity_config)
 
 
 def apply_opportunity_metrics(
@@ -285,7 +301,10 @@ def apply_opportunity_metrics(
     return funds
 
 
-def enrich_with_iopv(funds: list[FundData]) -> list[FundData]:
+def enrich_with_iopv(
+    funds: list[FundData],
+    opportunity_config: OpportunityConfig | None = None,
+) -> list[FundData]:
     """为基金列表添加 IOPV 估算数据"""
     from estimates import estimate_all, get_or_detect_config, fetch_estimated_nav
 
@@ -336,7 +355,7 @@ def enrich_with_iopv(funds: list[FundData]) -> list[FundData]:
             if r.nav_source_date:
                 f.nav_source_date = r.nav_source_date
 
-    return apply_opportunity_metrics(funds)
+    return apply_opportunity_metrics(funds, opportunity_config)
 
 
 def fetch_nav_history(code: str, page_size: int = 5) -> list[dict]:

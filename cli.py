@@ -224,9 +224,14 @@ def alert_rows(funds: list[FundData], config: dict) -> list[dict]:
     for fund in funds:
         if fund.error:
             continue
-        if fund.status == "actionable" and (fund.net_opportunity_rate or 0) >= net_threshold:
+        is_premium_side = fund.opportunity_direction == "premium" and (fund.premium_rate or 0) > 0
+        if (
+            is_premium_side
+            and fund.status == "actionable"
+            and (fund.net_opportunity_rate or 0) >= net_threshold
+        ):
             rows.append(_fund_alert_row(fund))
-        elif abs(fund.premium_rate or 0) >= gross_threshold and fund.status.endswith("_blocked"):
+        elif is_premium_side and (fund.premium_rate or 0) >= gross_threshold and fund.status.endswith("_blocked"):
             rows.append(_fund_alert_row(fund))
     return rows
 

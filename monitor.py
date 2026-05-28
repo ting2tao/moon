@@ -214,11 +214,12 @@ def fetch_fund_data(
         fund = _parse_tencent_line(line)
         if fund:
             found_codes.add(fund.code)
-            # 如果 API 没返回溢价率，手动计算
-            if fund.premium_rate is None and fund.market_price and fund.nav and fund.nav > 0:
-                fund.premium_rate = (fund.market_price - fund.nav) / fund.nav * 100
             fund.calculated_premium_rate = calculate_official_premium(fund.market_price, fund.nav)
-            fund.official_nav_premium_rate = fund.premium_rate or fund.calculated_premium_rate
+            if fund.calculated_premium_rate is not None:
+                fund.official_nav_premium_rate = fund.calculated_premium_rate
+                fund.premium_rate = fund.calculated_premium_rate
+            elif fund.premium_rate is not None:
+                fund.official_nav_premium_rate = fund.premium_rate
             results.append(fund)
 
     # 标记未找到的基金
@@ -252,14 +253,13 @@ def apply_opportunity_metrics(
             continue
 
         fund.calculated_premium_rate = calculate_official_premium(fund.market_price, fund.nav)
-        if fund.official_nav_premium_rate is None:
-            fund.official_nav_premium_rate = (
-                fund.raw_premium_rate
-                if fund.raw_premium_rate is not None
-                else fund.premium_rate
-                if fund.premium_rate is not None
-                else fund.calculated_premium_rate
-            )
+        fund.official_nav_premium_rate = (
+            fund.calculated_premium_rate
+            if fund.calculated_premium_rate is not None
+            else fund.raw_premium_rate
+            if fund.raw_premium_rate is not None
+            else fund.premium_rate
+        )
 
         if fund.estimated_iopv_premium_rate is None and fund.iopv_premium is not None:
             fund.estimated_iopv_premium_rate = fund.iopv_premium

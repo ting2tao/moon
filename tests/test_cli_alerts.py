@@ -20,6 +20,26 @@ class CliAlertTests(unittest.TestCase):
         self.assertEqual(second, [])
         self.assertEqual([r["code"] for r in third], ["161129", "164701"])
 
+    def test_alert_rows_do_not_recommend_negative_premium_rows(self):
+        from cli import alert_rows
+        from monitor import FundData
+
+        fund = FundData(
+            code="161129",
+            name="原油LOF易方达",
+            market_price=0.96,
+            nav=1.0,
+            nav_date="2026-05-05",
+            premium_rate=-4.0,
+            change_pct=-0.1,
+            volume=100000,
+            net_opportunity_rate=2.0,
+            opportunity_direction="discount",
+            status="redemption_blocked",
+        )
+
+        self.assertEqual(alert_rows([fund], {"alert_premium": 3, "net_alert_premium": 0.5}), [])
+
 
 if __name__ == "__main__":
     unittest.main()

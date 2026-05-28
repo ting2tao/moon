@@ -55,6 +55,30 @@ class MonitorIntegrationTests(unittest.TestCase):
         self.assertGreater(enriched.net_opportunity_rate, 1.0)
         self.assertIsNone(enriched.iopv_base_source)
 
+    def test_recalculates_official_premium_from_latest_price_and_nav(self):
+        from monitor import FundData, apply_opportunity_metrics
+
+        fund = FundData(
+            code="161129",
+            name="原油LOF易方达",
+            market_price=1.2345,
+            nav=1.2,
+            nav_date="2026-05-05",
+            premium_rate=2.0,
+            raw_premium_rate=2.0,
+            change_pct=0.1,
+            volume=100000,
+            turnover_amount=8_000_000,
+            sgzt="开放申购",
+            shzt="开放赎回",
+        )
+
+        [enriched] = apply_opportunity_metrics([fund])
+
+        self.assertAlmostEqual(enriched.calculated_premium_rate, 2.875)
+        self.assertAlmostEqual(enriched.official_nav_premium_rate, 2.875)
+        self.assertAlmostEqual(enriched.premium_rate, 2.875)
+
     def test_marks_error_rows_as_source_error_quality_d(self):
         from monitor import FundData, apply_opportunity_metrics
 

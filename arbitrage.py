@@ -119,6 +119,9 @@ def classify_status(
     if abs(metrics.gross_rate) < config.gross_threshold or metrics.net_rate < config.net_threshold:
         return "watch_only"
 
+    if metrics.direction != "premium":
+        return "watch_only"
+
     min_turnover = config.min_turnover_wan * 10_000
     if turnover_amount is not None and turnover_amount < min_turnover:
         return "illiquid"

@@ -105,6 +105,28 @@ class ArbitrageMathTests(unittest.TestCase):
             "illiquid",
         )
 
+    def test_negative_premium_is_watch_only_even_when_discount_space_is_large(self):
+        from arbitrage import OpportunityConfig, calculate_net_opportunity, classify_status
+
+        cfg = OpportunityConfig(min_turnover_wan=500, gross_threshold=1.5, net_threshold=0.5)
+        metrics = calculate_net_opportunity(96.0, 100.0, cfg)
+
+        self.assertEqual(metrics.direction, "discount")
+        self.assertGreater(metrics.net_rate, cfg.net_threshold)
+        self.assertEqual(
+            classify_status(
+                product_type="LOF",
+                metrics=metrics,
+                turnover_amount=8_000_000,
+                subscription_status="开放申购",
+                redemption_status="开放赎回",
+                creation_status=None,
+                etf_actionable=False,
+                config=cfg,
+            ),
+            "watch_only",
+        )
+
     def test_classifies_etf_as_watch_only_until_actionable_configured(self):
         from arbitrage import OpportunityConfig, calculate_net_opportunity, classify_status
 

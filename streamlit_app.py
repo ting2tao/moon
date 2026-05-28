@@ -74,6 +74,28 @@ def load_codes_from_text(text: str) -> list[str]:
     return [part.strip() for part in normalized.split() if part.strip()]
 
 
+def filter_dashboard_rows(
+    df: pd.DataFrame,
+    *,
+    gross_threshold: float,
+    net_threshold: float,
+    min_turnover: float,
+    only_actionable: bool,
+    show_blocked: bool,
+) -> pd.DataFrame:
+    if "默认溢价%" in df.columns:
+        df = df[df["默认溢价%"].fillna(float("-inf")) >= gross_threshold]
+    if "净空间%" in df.columns:
+        df = df[df["净空间%"].fillna(-999) >= net_threshold]
+    if "成交额万" in df.columns:
+        df = df[(df["成交额万"].isna()) | (df["成交额万"] >= min_turnover)]
+    if only_actionable and "状态" in df.columns:
+        df = df[df["状态"] == "actionable"]
+    elif not show_blocked and "状态" in df.columns:
+        df = df[~df["状态"].isin(["subscription_blocked", "redemption_blocked", "creation_blocked"])]
+    return df
+
+
 def main() -> None:
     st.set_page_config(page_title="场内基金折溢价监控", layout="wide")
     config = load_config()
@@ -116,16 +138,14 @@ def main() -> None:
         st.warning("没有匹配当前筛选条件的基金。")
         return
 
-    if "默认溢价%" in df.columns:
-        df = df[df["默认溢价%"].abs().fillna(0) >= gross_threshold]
-    if "净空间%" in df.columns:
-        df = df[df["净空间%"].fillna(-999) >= net_threshold]
-    if "成交额万" in df.columns:
-        df = df[(df["成交额万"].isna()) | (df["成交额万"] >= min_turnover)]
-    if only_actionable and "状态" in df.columns:
-        df = df[df["状态"] == "actionable"]
-    elif not show_blocked and "状态" in df.columns:
-        df = df[~df["状态"].isin(["subscription_blocked", "redemption_blocked", "creation_blocked"])]
+    df = filter_dashboard_rows(
+        df,
+        gross_threshold=gross_threshold,
+        net_threshold=net_threshold,
+        min_turnover=min_turnover,
+        only_actionable=only_actionable,
+        show_blocked=show_blocked,
+    )
 
     if "净空间%" in df.columns:
         df = df.sort_values("净空间%", ascending=False, na_position="last")

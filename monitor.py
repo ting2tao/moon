@@ -113,38 +113,52 @@ def fetch_all_lof_premiums(
     import requests
 
     url = "https://push2delay.eastmoney.com/api/qt/clist/get"
-    params = {
-        "pn": 1,
-        "pz": 500,
-        "po": 1,
-        "np": 1,
-        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-        "fltt": 2,
-        "invt": 2,
-        "fid": "f3",
-        "fs": "b:MK0404,b:MK0405,b:MK0406,b:MK0407",
-        "fields": "f2,f3,f6,f12,f14,f18",
-    }
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Referer": "https://fund.eastmoney.com/",
     }
 
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        return [FundData(
-            code="", name="", market_price=None, nav=None, nav_date=None,
-            premium_rate=None, change_pct=None, volume=None,
-            error=f"全市场扫描失败: {e}",
-        )]
+    # 分页获取全部 LOF 基金（API 每页最多返回 100 条）
+    all_items = []
+    page = 1
+    while True:
+        params = {
+            "pn": page,
+            "pz": 100,
+            "po": 1,
+            "np": 1,
+            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+            "fltt": 2,
+            "invt": 2,
+            "fid": "f3",
+            "fs": "b:MK0404,b:MK0405,b:MK0406,b:MK0407",
+            "fields": "f2,f3,f6,f12,f14,f18",
+        }
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            if page == 1:
+                return [FundData(
+                    code="", name="", market_price=None, nav=None, nav_date=None,
+                    premium_rate=None, change_pct=None, volume=None,
+                    error=f"全市场扫描失败: {e}",
+                )]
+            break
 
-    diff = (data.get("data") or {}).get("diff") or []
+        diff = (data.get("data") or {}).get("diff") or []
+        if not diff:
+            break
+        all_items.extend(diff)
+        total = (data.get("data") or {}).get("total") or 0
+        if len(all_items) >= total:
+            break
+        page += 1
+
     results = []
 
-    for item in diff:
+    for item in all_items:
         code = str(item.get("f12", ""))
         name = str(item.get("f14", ""))
         market_price = _safe_float_from_api(item.get("f2"))

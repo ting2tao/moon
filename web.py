@@ -13,7 +13,7 @@ from flask import Flask, jsonify, redirect, render_template, request
 
 from arbitrage import OpportunityConfig
 from cli import alert_rows
-from monitor import FundData, enrich_with_iopv, fetch_fund_data
+from monitor import FundData, enrich_with_iopv, fetch_all_lof_premiums
 from notifier import AlertCooldown, WeChatNotifier, format_alert_markdown
 
 app = Flask(__name__)
@@ -27,7 +27,6 @@ def load_config() -> dict:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     return {
-        "codes": ["164701", "161116", "161129"],
         "default_product_types": ["LOF"],
         "estimate": True,
         "alert_premium": 5,
@@ -84,17 +83,6 @@ def fund_to_dict(fund: FundData) -> dict:
     }
 
 
-def load_funds_from_request() -> tuple[list[str], bool]:
-    codes_param = request.args.get("codes")
-    estimate = request.args.get("estimate", "true").lower() == "true"
-
-    if codes_param:
-        codes = [c.strip() for c in codes_param.replace("，", ",").split(",") if c.strip()]
-    else:
-        codes = load_config().get("codes", [])
-    return codes, estimate
-
-
 @app.route("/")
 def index():
     config = load_config()
@@ -102,7 +90,6 @@ def index():
         return redirect("http://127.0.0.1:8501")
     return render_template(
         "dashboard.html",
-        default_funds=",".join(config.get("codes", [])),
         default_estimate="true" if config.get("estimate", True) else "false",
         default_alert=config.get("alert_premium", 5),
         default_refresh=config.get("refresh_seconds", 30),
@@ -111,12 +98,12 @@ def index():
 
 @app.route("/api/funds")
 def api_funds():
-    codes, estimate = load_funds_from_request()
-    if not codes:
-        return jsonify({"error": "未提供基金代码"}), 400
+    min_premium = float(request.args.get("min_premium", 1.5))
+    estimate = request.args.get("estimate", "true").lower() == "true"
 
-    opportunity_config = OpportunityConfig.from_mapping(load_config())
-    funds = fetch_fund_data(codes, opportunity_config)
+    config = load_config()
+    opportunity_config = OpportunityConfig.from_mapping(config)
+    funds = fetch_all_lof_premiums(min_premium, opportunity_config)
     if estimate:
         funds = enrich_with_iopv(funds, opportunity_config)
 
@@ -134,13 +121,12 @@ def api_funds():
 
 @app.route("/api/alerts")
 def api_alerts():
-    codes, estimate = load_funds_from_request()
-    if not codes:
-        return jsonify({"error": "未提供基金代码"}), 400
+    min_premium = float(request.args.get("min_premium", 1.5))
+    estimate = request.args.get("estimate", "true").lower() == "true"
 
     config = load_config()
     opportunity_config = OpportunityConfig.from_mapping(config)
-    funds = fetch_fund_data(codes, opportunity_config)
+    funds = fetch_all_lof_premiums(min_premium, opportunity_config)
     if estimate:
         funds = enrich_with_iopv(funds, opportunity_config)
     rows = alert_rows(funds, config)
@@ -150,12 +136,12 @@ def api_alerts():
 @app.route("/api/notify", methods=["POST"])
 def api_notify():
     data = request.get_json(silent=True) or {}
-    codes = data.get("codes") or load_config().get("codes", [])
+    min_premium = float(data.get("min_premium", 1.5))
     estimate = bool(data.get("estimate", True))
     config = load_config()
 
     opportunity_config = OpportunityConfig.from_mapping(config)
-    funds = fetch_fund_data(codes, opportunity_config)
+    funds = fetch_all_lof_premiums(min_premium, opportunity_config)
     if estimate:
         funds = enrich_with_iopv(funds, opportunity_config)
 
@@ -194,7 +180,6 @@ def api_update_config():
 
     config = load_config()
     for key in (
-        "codes",
         "default_product_types",
         "estimate",
         "alert_premium",
@@ -207,7 +192,7 @@ def api_update_config():
     ):
         if key not in data:
             continue
-        if key in {"codes", "default_product_types"}:
+        if key == "default_product_types":
             config[key] = [str(c).strip() for c in data[key] if str(c).strip()]
         elif key == "estimate":
             config[key] = bool(data[key])
@@ -226,9 +211,10 @@ def api_sources():
         {
             "primary_dashboard": "streamlit_app.py",
             "legacy_flask": "web.py",
-            "fund_quote": {
-                "name": "腾讯财经 (qt.gtimg.cn)",
-                "fields": {"price": 3, "volume": 6, "change_pct": 32, "premium": 77, "nav": 81},
+            "data_source": {
+                "name": "东方财富 (push2delay.eastmoney.com)",
+                "description": "全市场 LOF 基金扫描",
+                "fields": {"price": "f2", "change_pct": "f3", "turnover": "f6", "code": "f12", "name": "f14", "nav": "f18"},
             },
             "iopv": {
                 "formula": "IOPV = T-1净值 x (外盘现价/外盘昨收) x (实时汇率/T-1中间价)",
@@ -240,32 +226,6 @@ def api_sources():
     )
 
 
-@app.route("/api/funds/add", methods=["POST"])
-def api_add_fund():
-    data = request.get_json() or {}
-    code = data.get("code", "").strip()
-    if not code:
-        return jsonify({"error": "基金代码不能为空"}), 400
-
-    config = load_config()
-    config.setdefault("codes", [])
-    if code not in config["codes"]:
-        config["codes"].append(code)
-        save_config(config)
-    return jsonify({"ok": True, "codes": config["codes"]})
-
-
-@app.route("/api/funds/remove", methods=["POST"])
-def api_remove_fund():
-    data = request.get_json() or {}
-    code = data.get("code", "").strip()
-    config = load_config()
-    if code in config.get("codes", []):
-        config["codes"].remove(code)
-        save_config(config)
-    return jsonify({"ok": True, "codes": config.get("codes", [])})
-
-
 if __name__ == "__main__":
     import argparse
 
@@ -273,10 +233,10 @@ if __name__ == "__main__":
     parser.add_argument("--port", "-p", type=int, default=8899, help="端口号（默认 8899）")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
     parser.add_argument("--debug", action="store_true", help="调试模式")
+    parser.add_argument("--min-premium", "-m", type=float, default=1.5, help="最低扫描溢价率(%)，默认 1.5")
     args = parser.parse_args()
 
-    config = load_config()
     print(f"启动 Legacy Flask API: http://{args.host}:{args.port}")
     print("主看板请使用: streamlit run streamlit_app.py")
-    print(f"监控基金: {', '.join(config.get('codes', []))}")
+    print(f"全市场扫描模式：溢价 >= {args.min_premium}%")
     app.run(host=args.host, port=args.port, debug=args.debug)

@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.text import Text
 
 from arbitrage import OpportunityConfig
-from monitor import FundData, enrich_with_iopv, fetch_all_lof_premiums, fetch_fund_data
+from monitor import FundData, enrich_with_iopv, fetch_all_lof_premiums
 from notifier import AlertCooldown, WeChatNotifier, format_alert_markdown
 
 console = Console()
@@ -26,7 +26,6 @@ def load_config() -> dict:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
     return {
-        "codes": ["164701", "161116", "161129"],
         "default_product_types": ["LOF"],
         "estimate": True,
         "alert_premium": 5,
@@ -36,7 +35,6 @@ def load_config() -> dict:
     }
 
 
-DEFAULT_FUNDS = load_config().get("codes", ["164701", "161116", "161129"])
 NOTIFY_COOLDOWN = AlertCooldown()
 
 
@@ -167,7 +165,6 @@ def build_table(funds: list[FundData], alert_threshold: float | None = None) -> 
             )
             continue
 
-        # 优先显示 IOPV 使用的净值日期（估算或官方）
         date_str = fund.nav_source_date or fund.nav_date or "-"
         if fund.nav_age_days and fund.nav_age_days > 2:
             date_str += " !"
@@ -253,26 +250,20 @@ def filter_rows_by_cooldown(
 
 
 def run_once(
-    codes: list[str],
     *,
-    estimate: bool = False,
+    min_premium: float = 1.5,
+    estimate: bool = True,
     alert_threshold: float | None = None,
     notify: bool = False,
-    scan: bool = False,
-    min_scan_premium: float = 1.5,
 ) -> list[FundData]:
     config = load_config()
     opportunity_config = OpportunityConfig.from_mapping(config)
 
-    if scan:
-        funds = fetch_all_lof_premiums(min_scan_premium, opportunity_config)
+    funds = fetch_all_lof_premiums(min_premium, opportunity_config)
+    if estimate:
         funds = enrich_with_iopv(funds, opportunity_config)
-        console.print(f"[dim]全市场扫描：溢价 >= {min_scan_premium}% 的 LOF 基金[/dim]\n")
-    else:
-        funds = fetch_fund_data(codes, opportunity_config)
-        if estimate:
-            funds = enrich_with_iopv(funds, opportunity_config)
 
+    console.print(f"[dim]全市场扫描：溢价 >= {min_premium}% 的 LOF 基金[/dim]\n")
     console.print(build_table(funds, alert_threshold=alert_threshold))
 
     for fund in funds:
@@ -298,22 +289,18 @@ def run_once(
 
 
 def run_watch(
-    codes: list[str],
     interval: int,
     *,
-    estimate: bool = False,
+    min_premium: float = 1.5,
+    estimate: bool = True,
     alert_threshold: float | None = None,
     notify: bool = False,
-    scan: bool = False,
-    min_scan_premium: float = 1.5,
 ) -> None:
-    mode = "全市场扫描" if scan else "Watch"
-    console.print(f"[dim]{mode} 模式：每 {interval} 秒刷新，Ctrl+C 退出[/dim]\n")
+    console.print(f"[dim]全市场扫描模式：每 {interval} 秒刷新，Ctrl+C 退出[/dim]\n")
     while True:
         try:
             console.clear()
-            run_once(codes, estimate=estimate, alert_threshold=alert_threshold, notify=notify,
-                     scan=scan, min_scan_premium=min_scan_premium)
+            run_once(min_premium=min_premium, estimate=estimate, alert_threshold=alert_threshold, notify=notify)
             time.sleep(interval)
         except KeyboardInterrupt:
             console.print("\n[dim]已退出监控[/dim]")
@@ -323,34 +310,30 @@ def run_watch(
 def main() -> None:
     config = load_config()
     parser = argparse.ArgumentParser(
-        description="场内基金折溢价套利监控工具",
+        description="场内基金折溢价套利监控工具（全市场扫描）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python cli.py 164701 161116 161129
-  python cli.py 164701 161116 161129 --estimate
-  python cli.py 164701 161116 161129 --watch 30
-  python cli.py 161116 --alert 5
-  python cli.py 161116 --notify
-  python cli.py --scan                    # 全市场 LOF 扫描
-  python cli.py --scan --min-premium 3    # 只看溢价 >= 3% 的基金
+  python cli.py                        # 全市场扫描，溢价 >= 1.5%
+  python cli.py --min-premium 3        # 只看溢价 >= 3% 的基金
+  python cli.py --watch 30             # 每 30 秒自动刷新
+  python cli.py --alert 5              # 溢价超 5% 高亮
+  python cli.py --notify               # 触发企业微信通知
         """,
     )
-    parser.add_argument("codes", nargs="*", default=DEFAULT_FUNDS, help="基金代码列表")
     parser.add_argument("--watch", "-w", type=int, nargs="?", const=30, default=None, help="Watch 模式刷新秒数")
     parser.add_argument("--alert", "-a", type=float, default=config.get("alert_premium"), help="溢价高亮阈值")
     parser.add_argument("--estimate", "-e", action="store_true", default=config.get("estimate", True), help="启用 IOPV")
     parser.add_argument("--notify", action="store_true", help="发送企业微信提醒")
-    parser.add_argument("--scan", "-s", action="store_true", help="全市场 LOF 扫描模式")
-    parser.add_argument("--min-premium", type=float, default=1.5, help="全市场扫描最低溢价率(%%)，默认 1.5")
+    parser.add_argument("--min-premium", "-m", type=float, default=1.5, help="最低扫描溢价率(%%)，默认 1.5")
 
     args = parser.parse_args()
     if args.watch is not None:
-        run_watch(args.codes, args.watch, estimate=args.estimate, alert_threshold=args.alert,
-                  notify=args.notify, scan=args.scan, min_scan_premium=args.min_premium)
+        run_watch(args.watch, min_premium=args.min_premium, estimate=args.estimate,
+                  alert_threshold=args.alert, notify=args.notify)
     else:
-        run_once(args.codes, estimate=args.estimate, alert_threshold=args.alert,
-                 notify=args.notify, scan=args.scan, min_scan_premium=args.min_premium)
+        run_once(min_premium=args.min_premium, estimate=args.estimate,
+                 alert_threshold=args.alert, notify=args.notify)
 
 
 if __name__ == "__main__":

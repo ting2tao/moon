@@ -12,7 +12,6 @@ from arbitrage import (
     classify_status,
     score_data_quality,
 )
-from providers import infer_market_prefix
 
 
 @dataclass
@@ -64,94 +63,6 @@ class FundData:
     source_warnings: tuple[str, ...] = ()
 
 
-def _exchange_prefix(code: str) -> str:
-    """判断沪深市场前缀：16/15开头→sz(深圳)，5开头→sh(上海)"""
-    return infer_market_prefix(code)
-
-
-def _calc_nav_age(nav_date: Optional[str]) -> Optional[int]:
-    """计算净值距今天数"""
-    if not nav_date:
-        return None
-    try:
-        dt = datetime.strptime(nav_date, "%Y-%m-%d")
-        return (datetime.now() - dt).days
-    except ValueError:
-        return None
-
-
-def _parse_tencent_line(line: str) -> Optional[FundData]:
-    """解析腾讯财经单行数据"""
-    line = line.strip()
-    if not line or "=" not in line:
-        return None
-
-    start = line.index('"') + 1
-    end = line.rindex('"')
-    if start >= end:
-        return None
-
-    parts = line[start:end].split("~")
-    if len(parts) < 82:
-        return None
-
-    code = parts[2]
-    name = parts[1]
-
-    def safe_float(idx):
-        try:
-            v = parts[idx].strip()
-            return float(v) if v and v != "" else None
-        except (ValueError, IndexError):
-            return None
-
-    def safe_int(idx):
-        try:
-            v = parts[idx].strip()
-            return int(float(v)) if v and v != "" else None
-        except (ValueError, IndexError):
-            return None
-
-    market_price = safe_float(3)
-    nav = safe_float(81)
-    premium_rate = safe_float(77)
-    change_pct = safe_float(32) if len(parts) > 32 else None
-    volume = safe_int(6)
-    turnover_amount = None
-    if len(parts) > 35 and "/" in parts[35]:
-        trade_parts = parts[35].split("/")
-        if len(trade_parts) >= 3:
-            try:
-                turnover_amount = float(trade_parts[2])
-            except ValueError:
-                turnover_amount = None
-    if turnover_amount is None:
-        amount_wan = safe_float(57) or safe_float(37)
-        if amount_wan is not None:
-            turnover_amount = amount_wan * 10_000
-
-    # NAV 日期：从字段85附近提取，格式 YYYYMMDD
-    nav_date = None
-    if len(parts) > 30 and parts[30]:
-        raw = parts[30]  # 交易日期时间 如 20260430100945
-        if len(raw) >= 8:
-            nav_date = f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
-
-    return FundData(
-        code=code,
-        name=name,
-        market_price=market_price,
-        nav=nav,
-        nav_date=nav_date,
-        premium_rate=premium_rate,
-        raw_premium_rate=premium_rate,
-        change_pct=change_pct,
-        volume=volume,
-        turnover_amount=turnover_amount,
-        nav_age_days=_calc_nav_age(nav_date),
-    )
-
-
 def _fetch_subscription_status(codes: list[str]) -> dict[str, tuple[Optional[str], Optional[str], Optional[str]]]:
     """批量获取申购赎回状态
 
@@ -184,65 +95,6 @@ def _fetch_subscription_status(codes: list[str]) -> dict[str, tuple[Optional[str
         except Exception:
             result[code] = (None, None, None)
     return result
-
-
-def fetch_fund_data(
-    codes: list[str],
-    opportunity_config: OpportunityConfig | None = None,
-) -> list[FundData]:
-    """批量获取基金实时数据（腾讯财经 API）"""
-    import requests
-
-    if not codes:
-        return []
-
-    symbols = [f"{_exchange_prefix(c)}{c}" for c in codes]
-    url = f"https://qt.gtimg.cn/q={','.join(symbols)}"
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Referer": "https://qt.gtimg.cn/",
-    }
-
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        return [FundData(
-            code=c, name="", market_price=None, nav=None, nav_date=None,
-            premium_rate=None, change_pct=None, volume=None, error=f"网络错误: {e}"
-        ) for c in codes]
-
-    results = []
-    found_codes = set()
-
-    for line in resp.text.strip().split("\n"):
-        fund = _parse_tencent_line(line)
-        if fund:
-            found_codes.add(fund.code)
-            fund.calculated_premium_rate = calculate_official_premium(fund.market_price, fund.nav)
-            if fund.calculated_premium_rate is not None:
-                fund.official_nav_premium_rate = fund.calculated_premium_rate
-                fund.premium_rate = fund.calculated_premium_rate
-            elif fund.premium_rate is not None:
-                fund.official_nav_premium_rate = fund.premium_rate
-            results.append(fund)
-
-    # 标记未找到的基金
-    for c in codes:
-        if c not in found_codes:
-            results.append(FundData(
-                code=c, name="", market_price=None, nav=None, nav_date=None,
-                premium_rate=None, change_pct=None, volume=None, error="未找到该基金"
-            ))
-
-    # 获取申购赎回状态
-    sub_status = _fetch_subscription_status(codes)
-    for f in results:
-        if f.code in sub_status:
-            f.sgzt, f.shzt, f.sg_limit = sub_status[f.code]
-
-    return apply_opportunity_metrics(results, opportunity_config)
 
 
 def fetch_all_lof_premiums(

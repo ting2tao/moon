@@ -263,7 +263,7 @@ def run_once(
     if estimate:
         funds = enrich_with_iopv(funds, opportunity_config)
 
-    console.print(f"[dim]全市场扫描：溢价 >= {min_premium}% 的 LOF 基金[/dim]\n")
+    console.print(f"[dim]全市场扫描：|溢价/折价| >= {min_premium}% 的 LOF 基金[/dim]\n")
     console.print(build_table(funds, alert_threshold=alert_threshold))
 
     for fund in funds:
@@ -314,8 +314,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python cli.py                        # 全市场扫描，溢价 >= 1.5%
-  python cli.py --min-premium 3        # 只看溢价 >= 3% 的基金
+  python cli.py                        # 全市场扫描，|溢价/折价| >= 1.5%
+  python cli.py --min-premium 3        # 只看 |溢价/折价| >= 3% 的基金
   python cli.py --watch 30             # 每 30 秒自动刷新
   python cli.py --alert 5              # 溢价超 5% 高亮
   python cli.py --notify               # 触发企业微信通知

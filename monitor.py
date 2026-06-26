@@ -245,6 +245,108 @@ def fetch_fund_data(
     return apply_opportunity_metrics(results, opportunity_config)
 
 
+def fetch_all_lof_premiums(
+    min_premium: float = 0.0,
+    opportunity_config: OpportunityConfig | None = None,
+) -> list[FundData]:
+    """全市场 LOF 基金溢价扫描（东方财富 push2 API）
+
+    Args:
+        min_premium: 最低溢价率过滤（%），只返回溢价率 >= 此值的基金
+        opportunity_config: 套利配置
+
+    Returns:
+        按溢价率降序排列的 FundData 列表
+    """
+    import requests
+
+    url = "https://push2delay.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": 1,
+        "pz": 500,
+        "po": 1,
+        "np": 1,
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": 2,
+        "invt": 2,
+        "fid": "f3",
+        "fs": "b:MK0404,b:MK0405,b:MK0406,b:MK0407",
+        "fields": "f2,f3,f6,f12,f14,f18",
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Referer": "https://fund.eastmoney.com/",
+    }
+
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return [FundData(
+            code="", name="", market_price=None, nav=None, nav_date=None,
+            premium_rate=None, change_pct=None, volume=None,
+            error=f"全市场扫描失败: {e}",
+        )]
+
+    diff = (data.get("data") or {}).get("diff") or []
+    results = []
+
+    for item in diff:
+        code = str(item.get("f12", ""))
+        name = str(item.get("f14", ""))
+        market_price = _safe_float_from_api(item.get("f2"))
+        nav = _safe_float_from_api(item.get("f18"))
+        change_pct = _safe_float_from_api(item.get("f3"))
+        turnover_amount = _safe_float_from_api(item.get("f6"))
+
+        # 计算溢价率：(场内价 / 净值 - 1) * 100
+        premium = None
+        if market_price and nav and nav > 0:
+            premium = (market_price / nav - 1) * 100
+
+        if premium is None or premium < min_premium:
+            continue
+
+        fund = FundData(
+            code=code,
+            name=name,
+            market_price=market_price,
+            nav=nav,
+            nav_date=None,
+            premium_rate=premium,
+            raw_premium_rate=premium,
+            change_pct=change_pct,
+            volume=None,
+            turnover_amount=turnover_amount,
+            quote_source="eastmoney",
+        )
+        results.append(fund)
+
+    # 按溢价率降序排列
+    results.sort(key=lambda f: f.premium_rate or 0, reverse=True)
+
+    # 获取申购赎回状态（批量，但限制数量避免请求过多）
+    codes = [f.code for f in results[:50]]
+    if codes:
+        sub_status = _fetch_subscription_status(codes)
+        for f in results:
+            if f.code in sub_status:
+                f.sgzt, f.shzt, f.sg_limit = sub_status[f.code]
+
+    return apply_opportunity_metrics(results, opportunity_config)
+
+
+def _safe_float_from_api(value) -> Optional[float]:
+    """从 API 返回值安全解析浮点数"""
+    if value is None or value == "-":
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
 def apply_opportunity_metrics(
     funds: list[FundData],
     config: OpportunityConfig | None = None,

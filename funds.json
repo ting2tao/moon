@@ -36,5 +36,17 @@
   "gross_threshold": 1.5,
   "min_turnover_wan": 500,
   "wechat_cooldown_minutes": 10,
-  "refresh_seconds": 30
+  "refresh_seconds": 30,
+  "sources": {
+    "tencent": {"mode": "primary", "timeout_seconds": 10},
+    "eastmoney": {"mode": "fallback", "timeout_seconds": 10},
+    "tiantian": {"mode": "reference", "timeout_seconds": 10},
+    "ifind": {"mode": "disabled"},
+    "choice": {"mode": "disabled"}
+  },
+  "source_compare": {
+    "enabled": true,
+    "max_price_deviation_pct": 0.3,
+    "max_reference_deviation_pct": 0.5
+  }
 }

@@ -152,6 +152,29 @@ moon/
 | `min_turnover_wan` | 最低成交额（万元） |
 | `refresh_seconds` | 刷新间隔（秒） |
 
+### 数据源策略
+
+Moon 支持按 source policy 管理数据源。`primary` 源优先使用，`fallback` 源在主源缺失时补位，`reference` 源只提供 NAV/IOPV 等参考值，`compare-only` 源只参与比对，`disabled` 源不会调用。
+
+iFinD 和 Choice 在默认配置中为 `disabled`。它们只作为正式授权数据源预留，不使用网页抓取或未公开接口。
+
+```json
+{
+  "sources": {
+    "tencent": {"mode": "primary", "timeout_seconds": 10},
+    "eastmoney": {"mode": "fallback", "timeout_seconds": 10},
+    "tiantian": {"mode": "reference", "timeout_seconds": 10},
+    "ifind": {"mode": "disabled"},
+    "choice": {"mode": "disabled"}
+  },
+  "source_compare": {
+    "enabled": true,
+    "max_price_deviation_pct": 0.3,
+    "max_reference_deviation_pct": 0.5
+  }
+}
+```
+
 ### 企业微信通知
 
 设置环境变量：

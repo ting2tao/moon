@@ -79,6 +79,29 @@ class MonitorIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(enriched.official_nav_premium_rate, 2.875)
         self.assertAlmostEqual(enriched.premium_rate, 2.875)
 
+    def test_fund_data_defaults_source_attribution(self):
+        from monitor import FundData, apply_opportunity_metrics
+
+        fund = FundData(
+            code="161129",
+            name="原油LOF易方达",
+            market_price=1.04,
+            nav=1.00,
+            nav_date="2026-05-05",
+            premium_rate=4.0,
+            change_pct=0.1,
+            volume=100000,
+            turnover_amount=8_000_000,
+            sgzt="开放申购",
+            shzt="开放赎回",
+        )
+
+        [enriched] = apply_opportunity_metrics([fund])
+
+        self.assertEqual(enriched.quote_source, "tencent")
+        self.assertIn(enriched.reference_source, {"nav", "iopv"})
+        self.assertEqual(enriched.source_warning_count, 0)
+
     def test_marks_error_rows_as_source_error_quality_d(self):
         from monitor import FundData, apply_opportunity_metrics
 

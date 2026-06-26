@@ -20,7 +20,7 @@ class WebNotifyTests(unittest.TestCase):
                 FakeNotifier.calls += 1
                 return True, "ok"
 
-        with patch.object(web, "fetch_fund_data", return_value=[]), \
+        with patch.object(web, "fetch_all_lof_premiums", return_value=[]), \
             patch.object(web, "enrich_with_iopv", side_effect=lambda funds: funds), \
             patch.object(web, "alert_rows", return_value=[row]), \
             patch.object(web, "format_alert_markdown", return_value="alert"), \
@@ -52,7 +52,7 @@ class WebNotifyTests(unittest.TestCase):
                     return False, "network error"
                 return True, "ok"
 
-        with patch.object(web, "fetch_fund_data", return_value=[]), \
+        with patch.object(web, "fetch_all_lof_premiums", return_value=[]), \
             patch.object(web, "enrich_with_iopv", side_effect=lambda funds: funds), \
             patch.object(web, "alert_rows", return_value=[row]), \
             patch.object(web, "format_alert_markdown", return_value="alert"), \

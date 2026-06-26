@@ -97,7 +97,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("监控设置")
-        min_scan_premium = st.number_input("最低扫描溢价(%)", value=1.5, step=0.5, help="只扫描溢价率 >= 此值的基金")
+        min_scan_premium = st.number_input("最低溢价/折价(%)", value=1.5, step=0.5, help="只展示 |溢价/折价| >= 此值的基金")
         estimate = st.checkbox("启用 IOPV", value=bool(config.get("estimate", True)))
         refresh_seconds = st.slider("建议刷新间隔(秒)", min_value=5, max_value=120, value=int(config.get("refresh_seconds", 30)))
         gross_threshold = st.number_input("毛折溢价阈值(%)", value=float(config.get("gross_threshold", 1.5)), step=0.1)
@@ -119,7 +119,7 @@ def main() -> None:
     )
 
     funds = load_premiums(min_scan_premium, min_turnover, gross_threshold, net_threshold)
-    st.caption(f"全市场扫描：溢价 >= {min_scan_premium}% 的 LOF 基金")
+    st.caption(f"全市场扫描：|溢价/折价| >= {min_scan_premium}% 的 LOF 基金")
 
     rows = [fund_to_row(f) for f in funds if f.product_type in selected_types]
     df = pd.DataFrame(rows)

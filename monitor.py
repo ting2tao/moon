@@ -171,7 +171,8 @@ def fetch_all_lof_premiums(
         if market_price and nav and nav > 0:
             premium = (market_price / nav - 1) * 100
 
-        if premium is None or premium < min_premium:
+        # 按绝对值筛选，同时展示溢价和折价
+        if premium is None or abs(premium) < min_premium:
             continue
 
         fund = FundData(

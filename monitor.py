@@ -56,6 +56,12 @@ class FundData:
     # IOPV 精度等级
     iopv_precision: str = "D"  # A/B/C/D
     fx_source: Optional[str] = None  # 汇率来源
+    # 数据源归因
+    quote_source: str = "tencent"
+    nav_source: str = "tencent"
+    reference_source_detail: Optional[str] = None
+    source_warning_count: int = 0
+    source_warnings: tuple[str, ...] = ()
 
 
 def _exchange_prefix(code: str) -> str:
@@ -267,6 +273,15 @@ def apply_opportunity_metrics(
         reference = choose_reference_value(fund.nav, fund.estimated_iopv)
         fund.reference_value = reference.value
         fund.reference_source = reference.source
+
+        # 数据源归因
+        if fund.reference_source == "iopv":
+            fund.reference_source_detail = fund.iopv_base_source or "iopv"
+        elif fund.reference_source == "nav":
+            fund.reference_source_detail = fund.nav_source
+        else:
+            fund.reference_source_detail = "missing"
+        fund.source_warning_count = len(fund.source_warnings)
 
         metrics = calculate_net_opportunity(fund.market_price, fund.reference_value, config)
         fund.opportunity_direction = metrics.direction
